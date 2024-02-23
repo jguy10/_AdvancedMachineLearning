@@ -1,0 +1,532 @@
+---
+title: "AML - Assignment 1"
+author: "James Guy"
+date: "2024-02-23"
+output: html_document
+---
+```{r}
+#Setting the seed so the results are the same each time.
+set.seed(123)
+```
+
+```{r}
+library(keras)
+imdb <- dataset_imdb(num_words = 10000)
+c(c(train_data, train_labels), c(test_data, test_labels)) %<-% imdb
+```
+```{r}
+str(train_data[[1]])
+```
+
+```{r}
+train_labels[[1]]
+```
+```{r}
+max(sapply(train_data, max))
+```
+```{r}
+# word_index is a dictionary mapping words to an integer index
+word_index <- dataset_imdb_word_index()
+# We reverse it, mapping integer indices to words
+reverse_word_index <- names(word_index)
+names(reverse_word_index) <- word_index
+# We decode the review; note that our indices were offset by 3
+# because 0, 1 and 2 are reserved indices for "padding", "start of sequence", and "unknown".
+decoded_review <- sapply(train_data[[1]], function(index) {
+  word <- if (index >= 3) reverse_word_index[[as.character(index - 3)]]
+  if (!is.null(word)) word else "?"
+})
+```
+```{r}
+cat(decoded_review)
+```
+```{r}
+vectorize_sequences <- function(sequences, dimension = 10000) {
+  # Create an all-zero matrix of shape (len(sequences), dimension)
+  results <- matrix(0, nrow = length(sequences), ncol = dimension)
+  for (i in 1:length(sequences))
+    # Sets specific indices of results[i] to 1s
+    results[i, sequences[[i]]] <- 1
+  results
+}
+# Our vectorized training data
+x_train <- vectorize_sequences(train_data)
+# Our vectorized test data
+x_test <- vectorize_sequences(test_data)
+```
+```{r}
+str(x_train[1,])
+```
+```{r}
+# Our vectorized labels
+y_train <- as.numeric(train_labels)
+y_test <- as.numeric(test_labels)
+```
+
+```{r}
+library(keras)
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>% 
+  layer_dense(units = 16, activation = "relu") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+```
+```{r}
+model %>% compile(
+  optimizer = optimizer_rmsprop(lr=0.001),
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+) 
+```
+```{r}
+model %>% compile(
+  optimizer = optimizer_rmsprop(lr = 0.001),
+  loss = loss_binary_crossentropy,
+  metrics = metric_binary_accuracy
+) 
+```
+
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>% 
+  layer_dense(units = 16, activation = "relu") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+model %>% fit(x_train, y_train, epochs = 4, batch_size = 512)
+results <- model %>% evaluate(x_test, y_test)
+```
+```{r}
+results
+```
+```{r}
+model %>% predict(x_test[1:10,])
+```
+1. Trying 1 hidden layer, instead of 2
+```{r}
+#Using 1 hidden layer
+model <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+1. Trying 3 hidden layers, instead of 2
+```{r}
+#Trying 3 hidden layers:
+model <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+2. Trying using layers with more hidden units, such as 32
+```{r}
+#Using more hidden units, specially 32
+model <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+2. Trying using layers with more hidden units, such as 64
+```{r}
+#Trying 3 hidden layers with 64 units:
+model <- keras_model_sequential() %>%
+  layer_dense(units = 64, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+3. Changing the loss function to MSE:
+```{r}
+library(keras)
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>% 
+  layer_dense(units = 16, activation = "relu") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+```
+```{r}
+#Changing the loss function from binary crossentropy to MSE
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+4. Using tanh activation, instead of relu:
+```{r}
+#Replacing the activation function relu with tanh activation:
+library(keras)
+model <- keras_model_sequential() %>% 
+  layer_dense(units = 16, activation = "tanh", input_shape = c(10000)) %>% 
+  layer_dense(units = 16, activation = "tanh") %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+5. Adding dropout to increase performance on validation:
+```{r}
+#Adding dropout:
+model <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+5. Adding regularization:
+```{r}
+#Adding Regularziation:
+model <- keras_model_sequential() %>%
+  layer_dense(units = 16, kernel_regularizer = regularizer_l2(0.001), activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 16, kernel_regularizer = regularizer_l2(0.001), activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+```
+```{r}
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("accuracy")
+)
+```
+
+```{r}
+val_indices <- 1:10000
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+```{r}
+str(history)
+```
+```{r}
+plot(history)
+```
+```{r}
+results <- model %>% evaluate(x_test, y_test)
+print(results)
+```
+Summary and Conclusions:<br><br>
+
+The baseline configuration gave the best accuracy of ~88% with a loss of ~30%, whereas the configuration with the dropout added produced a worse accuracy of ~87%, but the best loss of any configuration tested at ~10.4%.The tested configuration with the MSE loss function, instead of the binary cross entropy produced a much better loss rate. When using 3 hidden layers with 64 units and binary cross entropy vs 3 hidden layers with 64 units and MSE, it is seen that the loss rate goes down dramatically from ~79% to ~11%. After rigorous testing of many different configurations for the model, I believe the dropout configuration to produce the best results and thus is the best model to use for predictions.
+```{r}
+library(tibble)
+library(ggplot2)
+
+# Summary of experiments
+results_summary <- tribble(
+  ~Experiment, ~Accuracy, ~Loss, 
+  "Baseline (2 layers, 16 units)", 0.8810400, 0.2961855, 
+  "1 Hidden Layer", 0.8670400, 0.3938096, 
+  "3 Hidden Layers", 0.855360, 0.719653, 
+  "32 Units", 0.8278000, 0.9879665, 
+  "64 Units", 0.8631600, 0.7899076, 
+  "MSE Loss", 0.8646800, 0.1054203, 
+  "Tanh Activation", 0.8626400, 0.1173769, 
+  "Dropout", 0.8749200, 0.1041435, 
+  "Regularization", 0.8380800, 0.1471141
+)
+
+print(results_summary)
+
+```
+```{r}
+#Creating a bar chart to compare accruacy
+ggplot(results_summary, aes(x = Experiment, y = Accuracy, fill = Experiment)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Model Accuracy Across Different Configurations", y = "Accuracy", x = "")
+```
+```{r}
+#Creating a bar chart to compare loss
+ggplot(results_summary, aes(x = Experiment, y = Loss, fill = Experiment)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Model Loss Across Different Configurations", y = "Loss", x = "")
+```
+
