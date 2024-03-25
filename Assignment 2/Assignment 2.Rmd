@@ -1,0 +1,896 @@
+---
+title: "Assignment 2"
+author: "James Guy"
+date: "2024-03-24"
+output: html_document
+---
+
+1. To reduce overfitting I used data augmentation with the below model.
+```{r}
+#Loading the appropriate libraries
+library(reticulate)
+library(tensorflow)
+library(keras)
+library(magrittr)
+reticulate::py_install('pillow')
+```
+
+```{r}
+# Define paths
+original_dataset_dir <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages' 
+base_dir <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/cats_vs_dogs_small_dataset/cats_vs_dogs_small_dataset' 
+```
+```{r}
+# Directories for the training, validation, and test splits
+train_dir_1 <- file.path(base_dir, 'train')
+dir.create(train_dir_1)
+validation_dir_1 <- file.path(base_dir, 'validation')
+dir.create(validation_dir_1)
+test_dir_1 <- file.path(base_dir, 'test')
+dir.create(test_dir_1)
+```
+```{r}
+# Subdirectories for training, validation, and test splits for cats and dogs
+train_cats_dir_1 <- file.path(train_dir_1, 'cats')
+dir.create(train_cats_dir_1)
+train_dogs_dir_1 <- file.path(train_dir_1, 'dogs')
+dir.create(train_dogs_dir_1)
+
+validation_cats_dir_1 <- file.path(validation_dir_1, 'cats')
+dir.create(validation_cats_dir_1)
+validation_dogs_dir_1 <- file.path(validation_dir_1, 'dogs')
+dir.create(validation_dogs_dir_1)
+
+test_cats_dir_1 <- file.path(test_dir_1, 'cats')
+dir.create(test_cats_dir_1)
+test_dogs_dir_1 <- file.path(test_dir_1, 'dogs')
+dir.create(test_dogs_dir_1)
+```
+```{r}
+# Directory paths
+base_dir <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/cats_vs_dogs_small_dataset/cats_vs_dogs_small_dataset"
+
+cats_source_dir <- file.path(base_dir, "cat") 
+dogs_source_dir <- file.path(base_dir, "dog") 
+
+# Define target directories
+train_cats_dir_1 <- file.path(base_dir, 'train/cats')
+validation_cats_dir_1 <- file.path(base_dir, 'validation/cats')
+test_cats_dir_1 <- file.path(base_dir, 'test/cats')
+
+train_dogs_dir_1 <- file.path(base_dir, 'train/dogs')
+validation_dogs_dir_1 <- file.path(base_dir, 'validation/dogs')
+test_dogs_dir_1 <- file.path(base_dir, 'test/dogs')
+```
+
+```{r}
+# Function to copy images based on numeric naming convention
+copy_images <- function(start_index, end_index, source_dir_base, target_dir) {
+  for (i in start_index:end_index) {
+    file_name <- sprintf("%d.jpg", i)  
+    file_path <- file.path(source_dir_base, file_name)
+    if(file.exists(file_path)) { # Check if file exists before copying
+      file.copy(file_path, target_dir)
+    }
+  }
+}
+
+# Base directory for source images
+base_dir <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/cats_vs_dogs_small_dataset/cats_vs_dogs_small_dataset"
+
+# Subdirectory for cats and dogs
+cats_dir <- file.path(base_dir, "cat") 
+dogs_dir <- file.path(base_dir, "dog") 
+
+# Define target directories
+train_cats_dir_1 <- file.path(base_dir, 'train/cats')
+validation_cats_dir_1 <- file.path(base_dir, 'validation/cats')
+test_cats_dir_1 <- file.path(base_dir, 'test/cats')
+
+train_dogs_dir_1 <- file.path(base_dir, 'train/dogs')
+validation_dogs_dir_1 <- file.path(base_dir, 'validation/dogs')
+test_dogs_dir_1 <- file.path(base_dir, 'test/dogs')
+
+# Use the function to copy the images
+
+copy_images(0, 999, cats_dir, train_cats_dir_1)       
+copy_images(1000, 1499, cats_dir, validation_cats_dir_1)  
+copy_images(1500, 1999, cats_dir, test_cats_dir_1)       
+
+
+copy_images(0, 999, dogs_dir, train_dogs_dir_1)      
+copy_images(1000, 1499, dogs_dir, validation_dogs_dir_1) 
+copy_images(1500, 1999, dogs_dir, test_dogs_dir_1)       
+```
+```{r}
+#Building the model
+library(keras)
+
+model_1 <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = 'relu', 
+                input_shape = c(150, 150, 3)) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_flatten() %>%
+  layer_dense(units = 512, activation = 'relu') %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+```
+```{r}
+summary(model_1)
+```
+
+```{r}
+model_1 %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_rmsprop(learning_rate = 1e-4),
+  metrics = c('accuracy')
+)
+
+```
+```{r}
+#Data Preprocessing and Augmentation
+train_datagen_1 <- image_data_generator(
+  rescale = 1/255,
+  rotation_range = 40,
+  width_shift_range = 0.2,
+  height_shift_range = 0.2,
+  shear_range = 0.2,
+  zoom_range = 0.2,
+  horizontal_flip = TRUE,
+  fill_mode = 'nearest'
+)
+
+test_datagen_1 <- image_data_generator(rescale = 1/255)
+
+train_generator_1 <- flow_images_from_directory(
+  train_dir_1,
+  train_datagen_1,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = 'binary'
+)
+
+validation_generator_1 <- flow_images_from_directory(
+  validation_dir_1,
+  test_datagen_1,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = 'binary'
+)
+```
+```{r}
+
+# Use the generator_next function to retrieve the next batch
+batch_1 <- generator_next(train_generator_1)
+
+
+data_batch_1 <- batch_1[[1]]
+labels_batch_1 <- batch_1[[2]]
+
+# Print the dimensions of the data and labels batch
+cat("Data batch shape:", dim(data_batch_1), "\n")
+cat("Labels batch shape:", length(labels_batch_1), "\n")
+
+```
+
+```{r}
+#Training the model with data augmentation
+
+history_1 <- model_1 %>% fit(
+  x = train_generator_1,
+  steps_per_epoch = 100,
+  epochs = 30,
+  validation_data = validation_generator_1,
+  validation_steps = 50
+)
+
+```
+```{r}
+#Saving the model
+save_model_tf(model_1, "model_1")
+```
+```{r}
+# Plotting Training & Validation Accuracy
+plot(history_1$metrics$acc, type = 'l', col = 'blue', ylim = c(0, 1), ylab = 'Accuracy', xlab = 'Epoch', main = 'Training and Validation Accuracy')
+lines(history_1$metrics$val_acc, type = 'l', col = 'red')
+legend('bottomright', legend = c('Training Accuracy', 'Validation Accuracy'), col = c('blue', 'red'), lty = 1)
+
+# Plotting Training & Validation Loss
+plot(history_1$metrics$loss, type = 'l', col = 'blue', ylab = 'Loss', xlab = 'Epoch', main = 'Training and Validation Loss')
+lines(history_1$metrics$val_loss, type = 'l', col = 'red')
+legend('topright', legend = c('Training Loss', 'Validation Loss'), col = c('blue', 'red'), lty = 1)
+```
+<br><br>
+From the graphs we can see that using data augmentation provided an accuracy of about 78% and a loss of 47% at 30 epochs. <br> <br>
+
+2. Increasing the training sample size by 500, training from scratch, and optimizing using regularization with data augmentation: <br>
+
+```{r}
+# Define paths
+original_dataset_dir <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages'
+
+# Directories
+train_dir_2 <- file.path(original_dataset_dir, 'train_2')
+dir.create(train_dir_2)
+validation_dir_2 <- file.path(original_dataset_dir, 'validation_2')
+dir.create(validation_dir_2)
+test_dir_2 <- file.path(original_dataset_dir, 'test_2')
+dir.create(test_dir_2)
+
+# Subdirectories for training, validation, and test splits for cats and dogs
+train_cats_dir_2 <- file.path(train_dir_2, 'cats')
+dir.create(train_cats_dir_2)
+train_dogs_dir_2 <- file.path(train_dir_2, 'dogs')
+dir.create(train_dogs_dir_2)
+
+validation_cats_dir_2 <- file.path(validation_dir_2, 'cats')
+dir.create(validation_cats_dir_2)
+validation_dogs_dir_2 <- file.path(validation_dir_2, 'dogs')
+dir.create(validation_dogs_dir_2)
+
+test_cats_dir_2 <- file.path(test_dir_2, 'cats')
+dir.create(test_cats_dir_2)
+test_dogs_dir_2 <- file.path(test_dir_2, 'dogs')
+dir.create(test_dogs_dir_2)
+
+```
+```{r}
+# Define the source directories for cats and dogs
+cats_source_dir <- file.path(original_dataset_dir, "Cat") 
+dogs_source_dir <- file.path(original_dataset_dir, "Dog") 
+
+# Define target directories
+train_cats_dir_2 <- file.path(train_dir_2, 'cats')
+validation_cats_dir_2 <- file.path(validation_dir_2, 'cats')
+test_cats_dir_2 <- file.path(test_dir_2, 'cats')
+
+train_dogs_dir_2 <- file.path(train_dir_2, 'dogs')
+validation_dogs_dir_2 <- file.path(validation_dir_2, 'dogs')
+test_dogs_dir_2 <- file.path(test_dir_2, 'dogs')
+
+```
+
+```{r}
+# Function to copy images based on numeric naming convention
+copy_images <- function(start_index, end_index, source_dir_base, target_dir) {
+  for (i in start_index:end_index) {
+    file_name <- sprintf("%d.jpg", i)  
+    file_path <- file.path(source_dir_base, file_name)
+    if(file.exists(file_path)) { 
+      file.copy(file_path, target_dir)
+    }
+  }
+}
+
+# Original base directory
+original_dataset_dir <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages'
+
+
+original_cats_dir <- file.path(original_dataset_dir, "Cat")  
+original_dogs_dir <- file.path(original_dataset_dir, "Dog")  
+
+# Define target directories for model 2
+train_cats_dir_2 <- file.path(train_dir_2, 'cats')
+validation_cats_dir_2 <- file.path(validation_dir_2, 'cats')
+test_cats_dir_2 <- file.path(test_dir_2, 'cats')
+
+train_dogs_dir_2 <- file.path(train_dir_2, 'dogs')
+validation_dogs_dir_2 <- file.path(validation_dir_2, 'dogs')
+test_dogs_dir_2 <- file.path(test_dir_2, 'dogs')
+
+# Use the function to copy the images with the updated source directories
+# Increase training sample size to 1500 for model 2
+copy_images(0, 1500, original_cats_dir, train_cats_dir_2)  
+copy_images(1501, 2000, original_cats_dir, validation_cats_dir_2)  
+copy_images(2001, 2500, original_cats_dir, test_cats_dir_2)  
+
+copy_images(0, 1500, original_dogs_dir, train_dogs_dir_2)  
+copy_images(1501, 2000, original_dogs_dir, validation_dogs_dir_2)  
+copy_images(2001, 2500, original_dogs_dir, test_dogs_dir_2)  
+
+```
+```{r}
+#Building the model and adding dropout
+
+model_2 <- keras_model_sequential() %>%
+  # Convolutional layers
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = 'relu', input_shape = c(150, 150, 3)) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  
+  # Flattening the convolutional layer output to feed it into dense layers
+  layer_flatten() %>%
+  
+  # First dense layer with L2 regularization
+  layer_dense(units = 512, activation = 'relu', kernel_regularizer = regularizer_l2(0.001)) %>%
+  
+  # Dropout layer to reduce overfitting by randomly setting a fraction of input units to 0
+  layer_dropout(rate = 0.5) %>%
+  
+  # Output layer with a single unit for binary classification
+  layer_dense(units = 1, activation = 'sigmoid')
+
+model_2 %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_rmsprop(lr = 1e-4),
+  metrics = c('accuracy')
+)
+
+```
+```{r}
+#Data Preprocessing and Augmentation
+train_datagen_2 <- image_data_generator(
+  rescale = 1/255,
+  rotation_range = 40,
+  width_shift_range = 0.2,
+  height_shift_range = 0.2,
+  shear_range = 0.2,
+  zoom_range = 0.2,
+  horizontal_flip = TRUE,
+  fill_mode = 'nearest'
+)
+
+test_datagen_2 <- image_data_generator(rescale = 1/255)
+
+train_generator_2 <- flow_images_from_directory(
+  train_dir_2,
+  train_datagen_2,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = 'binary'
+)
+
+validation_generator_2 <- flow_images_from_directory(
+  validation_dir_2,
+  test_datagen_2,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = 'binary'
+)
+```
+```{r}
+
+# Use the generator_next function to retrieve the next batch
+batch_2 <- generator_next(train_generator_2)
+
+
+data_batch_2 <- batch_2[[1]]
+labels_batch_2 <- batch_2[[2]]
+
+# Print the dimensions of the data and labels batch
+cat("Data batch shape:", dim(data_batch_2), "\n")
+cat("Labels batch shape:", length(labels_batch_2), "\n")
+
+```
+
+
+```{r}
+#Training the model with data augmentation
+
+history_2 <- model_2 %>% fit(
+  x = train_generator_2,
+  steps_per_epoch = 150, 
+  epochs = 50, # Increased from 30 to 50
+  validation_data = validation_generator_2,
+  validation_steps = 50 # 
+)
+
+```
+
+```{r}
+#Saving the model
+save_model_tf(model_2, "model_2")
+```
+```{r}
+# Plotting Training & Validation Accuracy
+plot(history_2$metrics$acc, type = 'l', col = 'blue', ylim = c(0, 1), ylab = 'Accuracy', xlab = 'Epoch', main = 'Training and Validation Accuracy')
+lines(history_2$metrics$val_acc, type = 'l', col = 'red')
+legend('bottomright', legend = c('Training Accuracy', 'Validation Accuracy'), col = c('blue', 'red'), lty = 1)
+
+# Plotting Training & Validation Loss
+plot(history_2$metrics$loss, type = 'l', col = 'blue', ylab = 'Loss', xlab = 'Epoch', main = 'Training and Validation Loss')
+lines(history_2$metrics$val_loss, type = 'l', col = 'red')
+legend('topright', legend = c('Training Loss', 'Validation Loss'), col = c('blue', 'red'), lty = 1)
+
+```
+<br><br>
+From the graphs we can see that using data augmentation with dropout provided an accuracy of about 80% and a loss of 50% at 50 epochs. <br> <br>
+
+3. Increasing the training sample size by 1000, training from scratch, and optimizing using regularization with data augmentation: <br>
+
+```{r}
+# Define paths
+original_dataset_dir <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages'
+
+# Directories for training, validation, and test splits
+train_dir_3 <- file.path(original_dataset_dir, 'train_3')
+dir.create(train_dir_3)
+validation_dir_3 <- file.path(original_dataset_dir, 'validation_3')
+dir.create(validation_dir_3)
+test_dir_3 <- file.path(original_dataset_dir, 'test_3')
+dir.create(test_dir_3)
+
+# Subdirectories for training, validation, and test splits for cats and dogs
+train_cats_dir_3 <- file.path(train_dir_3, 'cats')
+dir.create(train_cats_dir_3)
+train_dogs_dir_3 <- file.path(train_dir_3, 'dogs')
+dir.create(train_dogs_dir_3)
+
+validation_cats_dir_3 <- file.path(validation_dir_3, 'cats')
+dir.create(validation_cats_dir_3)
+validation_dogs_dir_3 <- file.path(validation_dir_3, 'dogs')
+dir.create(validation_dogs_dir_3)
+
+test_cats_dir_3 <- file.path(test_dir_3, 'cats')
+dir.create(test_cats_dir_3)
+test_dogs_dir_3 <- file.path(test_dir_3, 'dogs')
+dir.create(test_dogs_dir_3)
+
+```
+```{r}
+# Define the source directories for cats and dogs
+cats_source_dir <- file.path(original_dataset_dir, "Cat") 
+dogs_source_dir <- file.path(original_dataset_dir, "Dog") 
+
+
+train_cats_dir_3 <- file.path(train_dir_3, 'cats')
+validation_cats_dir_3 <- file.path(validation_dir_3, 'cats')
+test_cats_dir_3 <- file.path(test_dir_3, 'cats')
+
+train_dogs_dir_3 <- file.path(train_dir_3, 'dogs')
+validation_dogs_dir_3 <- file.path(validation_dir_3, 'dogs')
+test_dogs_dir_3 <- file.path(test_dir_3, 'dogs')
+
+```
+```{r}
+# Increasing the training sample to 4000
+copy_images(0, 2000, file.path(original_dataset_dir, "Cat"), train_cats_dir_3)       
+copy_images(2001, 2500, file.path(original_dataset_dir, "Cat"), validation_cats_dir_3)  
+copy_images(2501, 3000, file.path(original_dataset_dir, "Cat"), test_cats_dir_3)       
+
+copy_images(0, 2000, file.path(original_dataset_dir, "Dog"), train_dogs_dir_3)      
+copy_images(2001, 2500, file.path(original_dataset_dir, "Dog"), validation_dogs_dir_3)  
+copy_images(2501, 3000, file.path(original_dataset_dir, "Dog"), test_dogs_dir_3) 
+```
+```{r}
+#Building the model
+
+model_3 <- keras_model_sequential() %>%
+  # Convolutional layers
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = 'relu', input_shape = c(150, 150, 3)) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = 'relu') %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  
+  # Flattening the convolutional layer output to feed it into dense layers
+  layer_flatten() %>%
+  
+  # First dense layer with L2 regularization
+  layer_dense(units = 512, activation = 'relu', kernel_regularizer = regularizer_l2(0.001)) %>%
+  
+  # Dropout layer to reduce overfitting by randomly setting a fraction of input units to 0
+  layer_dropout(rate = 0.5) %>%
+  
+  # Output layer with a single unit for binary classification
+  layer_dense(units = 1, activation = 'sigmoid')
+
+model_3 %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_rmsprop(lr = 1e-4),
+  metrics = c('accuracy')
+)
+
+```
+```{r}
+#Data Preprocessing and Augmentation
+train_datagen_3 <- image_data_generator(
+  rescale = 1/255,
+  rotation_range = 40,
+  width_shift_range = 0.2,
+  height_shift_range = 0.2,
+  shear_range = 0.2,
+  zoom_range = 0.2,
+  horizontal_flip = TRUE,
+  fill_mode = 'nearest'
+)
+
+test_datagen_3 <- image_data_generator(rescale = 1/255)
+
+train_generator_3 <- flow_images_from_directory(
+  train_dir_3,
+  train_datagen_3,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = 'binary'
+)
+
+validation_generator_3 <- flow_images_from_directory(
+  validation_dir_3,
+  test_datagen_3,
+  target_size = c(150, 150),
+  batch_size = 20,
+  class_mode = 'binary'
+)
+```
+```{r}
+
+# Use the generator_next function to retrieve the next batch
+batch_3 <- generator_next(train_generator_3)
+
+
+data_batch_3 <- batch_3[[1]]
+labels_batch_3 <- batch_3[[2]]
+
+# Print the dimensions of the data and labels batch
+cat("Data batch shape:", dim(data_batch_3), "\n")
+cat("Labels batch shape:", length(labels_batch_3), "\n")
+
+```
+
+
+```{r}
+#Training the model
+
+history_3 <- model_3 %>% fit(
+  x = train_generator_3,
+  steps_per_epoch = 200, 
+  epochs = 50, 
+  validation_data = validation_generator_3,
+  validation_steps = 50 
+)
+
+```
+```{r}
+#Saving the model
+save_model_tf(model_3, "model_3")
+```
+```{r}
+# Plotting Training & Validation Accuracy
+plot(history_3$metrics$acc, type = 'l', col = 'blue', ylim = c(0, 1), ylab = 'Accuracy', xlab = 'Epoch', main = 'Training and Validation Accuracy')
+lines(history_3$metrics$val_acc, type = 'l', col = 'red')
+legend('bottomright', legend = c('Training Accuracy', 'Validation Accuracy'), col = c('blue', 'red'), lty = 1)
+
+# Plotting Training & Validation Loss
+plot(history_3$metrics$loss, type = 'l', col = 'blue', ylab = 'Loss', xlab = 'Epoch', main = 'Training and Validation Loss')
+lines(history_3$metrics$val_loss, type = 'l', col = 'red')
+legend('topright', legend = c('Training Loss', 'Validation Loss'), col = c('blue', 'red'), lty = 1)
+
+```
+<br><br>
+From the graphs we can see that using data augmentation with dropout, and increasing the training sample size to 4000 provided an accuracy of about 84% and a loss of 40% at 50 epochs. <br> <br>
+
+4. Using a pre-trained model <br><br>
+
+```{r}
+# Load the VGG16 model
+conv_base <- application_vgg16(
+  weights = 'imagenet',
+  include_top = FALSE, # Exclude the top (fully connected layers)
+  input_shape = c(150, 150, 3)
+)
+```
+```{r}
+extract_features <- function(directory, sample_count) {
+  datagen_4 <- image_data_generator(rescale = 1/255)
+  generator_4 <- flow_images_from_directory(
+    directory = directory,
+    generator = datagen_4, 
+    target_size = c(150, 150),
+    batch_size = 20,
+    class_mode = 'binary'
+  )
+  
+  features_4 <- array(0, dim = c(sample_count, 4, 4, 512))
+  labels_4 <- array(0, dim = c(sample_count))
+  
+  i <- 0
+  while(TRUE) {
+    batch_4 <- generator_next(generator_4) 
+    if (is.null(batch_4)) break 
+    inputs_batch_4 <- batch_4[[1]]
+    labels_batch_4 <- batch_4[[2]]
+    features_batch_4 <- predict(conv_base, inputs_batch_4)
+    num_records_4 <- dim(inputs_batch_4)[1]
+    if ((i * 20 + num_records_4) > sample_count) { 
+        num_records_4 <- sample_count - i * 20
+    }
+    features_4[(i * 20 + 1):(i * 20 + num_records_4), , , ] <- features_batch_4[1:num_records_4, , , ] 
+    labels_4[(i * 20 + 1):(i * 20 + num_records_4)] <- labels_batch_4[1:num_records_4] 
+    i <- i + 1
+    if ((i * 20) >= sample_count) break
+  }
+  
+  return(list(features = features_4, labels = labels_4)) 
+}
+
+# Paths
+train_dir_4 <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/cats_vs_dogs_small_dataset/cats_vs_dogs_small_dataset/train"
+validation_dir_4 <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/cats_vs_dogs_small_dataset/cats_vs_dogs_small_dataset/validation"
+test_dir_4 <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/cats_vs_dogs_small_dataset/cats_vs_dogs_small_dataset/test"
+
+# Extract features and labels for train set
+train_results_4 <- extract_features(train_dir_4, 2000)
+train_features_4 <- train_results_4$features
+train_labels_4 <- train_results_4$labels
+
+# Extract features and labels for validation set
+validation_results_4 <- extract_features(validation_dir_4, 1000)
+validation_features_4 <- validation_results_4$features
+validation_labels_4 <- validation_results_4$labels
+
+# Extract features and labels for test set
+test_results_4 <- extract_features(test_dir_4, 1000)
+test_features_4 <- test_results_4$features
+test_labels_4 <- test_results_4$labels
+
+# Flatten the features to feed into a densely connected layer
+train_features_4 <- array_reshape(train_features_4, dim = c(dim(train_features_4)[1], 4 * 4 * 512))
+validation_features_4 <- array_reshape(validation_features_4, dim = c(dim(validation_features_4)[1], 4 * 4 * 512))
+test_features_4 <- array_reshape(test_features_4, dim = c(dim(test_features_4)[1], 4 * 4 * 512))
+```
+```{r}
+# Define and train the densely connected classifier
+model_4 <- keras_model_sequential() %>%
+  layer_dense(units = 256, activation = 'relu', input_shape = c(4 * 4 * 512)) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+model_4 %>% compile(
+  optimizer = optimizer_rmsprop(learning_rate = 2e-5),
+  loss = 'binary_crossentropy',
+  metrics = c('accuracy')
+)
+
+history_4 <- model_4 %>% fit(
+  x = train_features_4, y = train_labels_4,
+  epochs = 30,
+  batch_size = 20,
+  validation_data = list(validation_features_4, validation_labels_4)
+)
+```
+```{r}
+#Saving the model
+save_model_tf(model_4, "model_4")
+```
+```{r}
+# Plotting Training & Validation Accuracy
+plot(history_4$metrics$acc, type = 'l', col = 'blue', ylim = c(0, 1), ylab = 'Accuracy', xlab = 'Epoch', main = 'Training and Validation Accuracy')
+lines(history_4$metrics$val_acc, type = 'l', col = 'red')
+legend('bottomright', legend = c('Training Accuracy', 'Validation Accuracy'), col = c('blue', 'red'), lty = 1)
+
+# Plotting Training & Validation Loss
+plot(history_4$metrics$loss, type = 'l', col = 'blue', ylab = 'Loss', xlab = 'Epoch', main = 'Training and Validation Loss')
+lines(history_4$metrics$val_loss, type = 'l', col = 'red')
+legend('topright', legend = c('Training Loss', 'Validation Loss'), col = c('blue', 'red'), lty = 1)
+
+```
+<br><br>
+From the graphs we can see that using VGG16 mode with dropout on our original model_1 data produced significantly different results. We can see that this model is overfitting very early on. This is because this method can not utilize data augmentation. This model produced performance of about 97% accuracy and about 9% loss. <br> <br>
+
+```{r}
+
+# Define directories using model_2's data
+train_dir_5 <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages/train_2"
+validation_dir_5 <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages/validation_2"
+test_dir_5 <- "C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages/test_2"
+
+
+train_datagen_5 <- image_data_generator(
+  rescale = 1/255,
+  rotation_range = 20,  
+  width_shift_range = 0.1,
+  height_shift_range = 0.1,
+  shear_range = 0.1,
+  zoom_range = 0.1,
+  horizontal_flip = TRUE,
+  fill_mode = 'nearest'
+)
+
+test_datagen_5 <- image_data_generator(rescale = 1/255)
+
+train_generator_5 <- flow_images_from_directory(
+  train_dir_5,
+  train_datagen_5,
+  target_size = c(150, 150),
+  batch_size = 30,
+  class_mode = 'binary'
+)
+
+validation_generator_5 <- flow_images_from_directory(
+  validation_dir_5,
+  test_datagen_5,
+  target_size = c(150, 150),
+  batch_size = 30,
+  class_mode = 'binary'
+)
+```
+```{r}
+conv_base <- application_mobilenet_v2(weights = 'imagenet', include_top = FALSE, input_shape = c(128, 128, 3))
+
+# Set the entire model to be trainable
+conv_base$trainable <- TRUE
+
+# Freeze all layers except for the last convolutional block
+for (layer in conv_base$layers) {
+  # Check if the layer is a convolutional layer
+  if (grepl("conv", layer$name)) {
+    # Unfreeze the last convolutional block
+    layer$trainable <- grepl("block5", layer$name)
+  } else {
+    # Freeze non-convolutional layers
+    layer$trainable <- FALSE
+  }
+}
+
+```
+```{r}
+# Define model_5
+
+batch_size_5 = 32  
+
+model_5 <- keras_model_sequential() %>%
+  conv_base %>%
+  layer_flatten() %>%
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(0.5) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+# Use Adam optimizer for potentially faster convergence
+model_5 %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_adam(learning_rate = 1e-4),  
+  metrics = c('accuracy')
+)
+
+# Implement early stopping
+early_stopping <- callback_early_stopping(monitor = "val_loss", patience = 5)
+```
+```{r}
+# Train the model
+history_5 <- model_5 %>% fit(
+  train_generator_5,
+  steps_per_epoch = as.integer(3000 / batch_size_5),
+  epochs = 20,  # Reduced the number of epochs
+  validation_data = validation_generator_5,
+  validation_steps = as.integer(1000 / batch_size_5), 
+  callbacks = list(early_stopping)  # Added callback
+)
+```
+```{r}
+#Saving the model
+save_model_tf(model_5, "model_5")
+```
+```{r}
+# Plotting Training & Validation Accuracy
+plot(history_5$metrics$acc, type = 'l', col = 'blue', ylim = c(0, 1), ylab = 'Accuracy', xlab = 'Epoch', main = 'Training and Validation Accuracy')
+lines(history_5$metrics$val_acc, type = 'l', col = 'red')
+legend('bottomright', legend = c('Training Accuracy', 'Validation Accuracy'), col = c('blue', 'red'), lty = 1)
+
+# Plotting Training & Validation Loss
+plot(history_5$metrics$loss, type = 'l', col = 'blue', ylab = 'Loss', xlab = 'Epoch', main = 'Training and Validation Loss')
+lines(history_5$metrics$val_loss, type = 'l', col = 'red')
+legend('topright', legend = c('Training Loss', 'Validation Loss'), col = c('blue', 'red'), lty = 1)
+
+```
+Using the mobilenet_v2 model, with feature extraction, and implementing an early stop shows a performance of about 97% accuracy at epoch 9, as well as a loss of about 6%.
+
+```{r}
+# Directories for model_3's training, validation, and test data
+train_dir_6 <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages/train_3'
+validation_dir_6 <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages/validation_3'
+test_dir_6 <- 'C:/Users/reape/OneDrive/Documents/Masters Program/Spring 2024/Advanced Machine Learning/Assignment 2/kagglecatsanddogs_5340/PetImages/test_3'
+
+
+train_datagen_6 <- image_data_generator(
+  rescale = 1/255,
+  rotation_range = 20,  
+  width_shift_range = 0.1,
+  height_shift_range = 0.1,
+  shear_range = 0.1,
+  zoom_range = 0.1,
+  horizontal_flip = TRUE,
+  fill_mode = 'nearest'
+)
+
+test_datagen_6 <- image_data_generator(rescale = 1/255)
+
+train_generator_6 <- flow_images_from_directory(
+  train_dir_6,
+  train_datagen_6,
+  target_size = c(128, 128),  
+  batch_size = 32,            
+  class_mode = 'binary'
+)
+
+validation_generator_6 <- flow_images_from_directory(
+  validation_dir_6,
+  test_datagen_6,
+  target_size = c(128, 128),  
+  batch_size = 32,           
+  class_mode = 'binary'
+)
+
+```
+```{r}
+# MobileNetV2 model setup
+conv_base <- application_mobilenet_v2(weights = 'imagenet', include_top = FALSE, input_shape = c(128, 128, 3))
+
+# Set the entire model to be trainable
+conv_base$trainable <- TRUE
+
+# Freeze all layers except for the last convolutional block
+for (layer in conv_base$layers) {
+  if (grepl("conv", layer$name)) {
+    layer$trainable <- grepl("block16", layer$name)  # Adjusted to MobileNetV2's last block
+  } else {
+    layer$trainable <- FALSE
+  }
+}
+```
+```{r}
+# Define model_6 with the MobileNetV2 base
+model_6 <- keras_model_sequential() %>%
+  conv_base %>%
+  layer_flatten() %>%
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(0.5) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+# Compile model_6
+model_6 %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_adam(learning_rate = 1e-4),
+  metrics = c('accuracy')
+)
+
+# Implement early stopping
+early_stopping <- callback_early_stopping(monitor = "val_loss", patience = 5)
+```
+
+```{r}
+# Train the model
+history_6 <- model_6 %>% fit(
+  train_generator_6,
+  steps_per_epoch = as.integer(3000 / 32),  
+  epochs = 20,  # Reduced the number of epochs for faster training
+  validation_data = validation_generator_6,
+  validation_steps = as.integer(1000 / 32),  
+  callbacks = list(early_stopping)
+)
+```
+
+```{r}
+# Save the model
+save_model_tf(model_6, "model_6")
+```
+```{r}
+min_loss <- min(c(history_6$metrics$loss, history_6$metrics$val_loss))
+max_loss <- max(c(history_6$metrics$loss, history_6$metrics$val_loss))
+
+# Plotting Training & Validation Accuracy
+plot(history_6$metrics$acc, type = 'l', col = 'blue', ylim = c(0, 1), ylab = 'Accuracy', xlab = 'Epoch', main = 'Training and Validation Accuracy')
+lines(history_6$metrics$val_acc, type = 'l', col = 'red')
+legend('bottomright', legend = c('Training Accuracy', 'Validation Accuracy'), col = c('blue', 'red'), lty = 1)
+
+# Plotting Training & Validation Loss with adjusted ylim
+plot(history_6$metrics$loss, type = 'l', col = 'blue', ylim = c(min_loss, max_loss), ylab = 'Loss', xlab = 'Epoch', main = 'Training and Validation Loss')
+lines(history_6$metrics$val_loss, type = 'l', col = 'red')
+legend('topright', legend = c('Training Loss', 'Validation Loss'), col = c('blue', 'red'), lty = 1)
+
+```
+In this model I decided to use my original model_3's data with a pre-trained model (MobileNet_v2) instead. The results we can see from the graph are an accuracy of about 96% and a loss of about 6%.This is a dramatic increase in performance over my original model_3.
