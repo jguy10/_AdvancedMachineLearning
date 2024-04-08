@@ -1,0 +1,690 @@
+---
+title: "Assignment 3 - AML"
+author: "James Guy"
+date: "2024-04-06"
+output: html_document
+---
+
+```{r}
+library(keras)
+library(tensorflow)
+library(readr)
+library(reticulate)
+```
+```{r}
+#Downloading the dataset
+url <- "https://s3.amazonaws.com/keras-datasets/jena_climate_2009_2016.csv.zip"
+destfile <- "jena_climate.zip"
+download.file(url, destfile)
+unzip(destfile)
+```
+```{r}
+fname <- "jena_climate_2009_2016.csv"
+dataset <- read_csv(fname)
+
+# Inspecting the header and the number of rows
+print(colnames(dataset))
+print(nrow(dataset))
+```
+```{r}
+#Parsing the data
+temperature <- as.matrix(dataset[, 3, drop = FALSE])
+raw_data <- as.matrix(dataset[,-1])  # Convert to matrix, excluding the first column (Date Time)
+```
+```{r}
+#Plotting the Temp Time Series
+plot(temperature, type = 'l', main = "Temperature Time Series", xlab = "Time", ylab = "Temperature (°C)")
+
+# Plotting the first 10 days of temperature time series
+plot(temperature[1:(144*10)], type = 'l', main = "First 10 Days of Temperature Time Series", xlab = "Time", ylab = "Temperature (°C)")
+```
+```{r}
+#Computing the number of Samples for each data split
+num_train_samples <- floor(0.5 * nrow(raw_data))
+num_val_samples <- floor(0.25 * nrow(raw_data))
+num_test_samples <- nrow(raw_data) - num_train_samples - num_val_samples
+
+cat("num_train_samples:", num_train_samples, "\n")
+cat("num_val_samples:", num_val_samples, "\n")
+cat("num_test_samples:", num_test_samples, "\n")
+```
+```{r}
+#Preparing the data
+
+# Calculate mean and standard deviation for each column based on training data
+mean <- colMeans(raw_data[1:num_train_samples, ])
+std <- apply(raw_data[1:num_train_samples, ], 2, sd)
+
+# Normalize the entire dataset
+# Subtract the mean
+raw_data <- sweep(raw_data, 2, mean, "-")
+# Divide by the standard deviation
+raw_data <- sweep(raw_data, 2, std, "/")
+
+```
+```{r}
+
+# Define parameters for the time series data
+sampling_rate <- 6
+sequence_length <- 120
+delay <- sampling_rate * (sequence_length + 24 - 1)
+batch_size <- 256
+
+# Instantiate datasets for training, validation, and testing
+train_dataset <- timeseries_dataset_from_array(
+  data = raw_data[1:(num_train_samples - delay), ],
+  targets = temperature[(delay + 1):(num_train_samples)],
+  sequence_length = sequence_length,
+  sampling_rate = sampling_rate,
+  batch_size = batch_size
+)
+```
+```{r}
+val_dataset <- timeseries_dataset_from_array(
+  data = raw_data[(num_train_samples + 1):(num_train_samples + num_val_samples - sequence_length * sampling_rate), ],
+  targets = temperature[(num_train_samples + sequence_length * sampling_rate + delay + 1):(num_train_samples + num_val_samples)],
+  sequence_length = sequence_length,
+  sampling_rate = sampling_rate,
+  batch_size = batch_size
+)
+```
+```{r}
+test_dataset <- timeseries_dataset_from_array(
+  data = raw_data[(num_train_samples + num_val_samples - delay + 1):(nrow(raw_data) - delay), ],
+  targets = temperature[(num_train_samples + num_val_samples + delay + 1):nrow(temperature)],
+  sequence_length = sequence_length,
+  sampling_rate = sampling_rate,
+  batch_size = batch_size
+)
+```
+```{r}
+#Inspecting the output
+if (reticulate::py_has_attr(train_dataset, "as_numpy_iterator")) {
+  iter <- train_dataset$as_numpy_iterator()
+  
+  first_batch <- reticulate::iter_next(iter)
+  
+  # Extract samples and targets from the first batch
+  samples <- first_batch[[1]]
+  targets <- first_batch[[2]]
+  
+  # Print dimensions of samples and targets
+  cat("Samples shape:", dim(samples), "\n")
+  cat("Targets shape:", dim(targets), "\n")
+} else {
+  cat("The as_numpy_iterator method is not available.\n")
+}
+
+```
+```{r}
+calculate_common_sense_mae <- function(data, targets, std, mean, sampling_rate, sequence_length, delay) {
+  # Extract the last observed temperatures as predictors
+  preds_idx_start <- nrow(data) - nrow(targets) + 1 - delay
+  preds_idx_end <- nrow(data) - delay
+  preds <- data[preds_idx_start:preds_idx_end, 2]
+  
+  # Reverse normalization for the predictions
+  preds_normalized <- (preds * std[2]) + mean[2]
+
+  # Actual targets
+  actual_targets <- as.numeric(targets)  
+  
+  # Calculate MAE
+  mae <- mean(abs(preds_normalized - actual_targets))
+  return(mae)
+}
+
+# Parameters for MAE calculation
+sampling_rate <- 6
+sequence_length <- 120
+delay <- 24 
+
+# Prepare targets for validation and test sets based on temporal split
+validation_targets <- temperature[(num_train_samples + 1):(num_train_samples + num_val_samples), , drop = FALSE]
+test_targets <- temperature[(num_train_samples + num_val_samples + 1):nrow(temperature), , drop = FALSE]
+
+# Calculate MAE for validation and test sets using the adjusted function
+validation_mae <- calculate_common_sense_mae(raw_data, validation_targets, std, mean, sampling_rate, sequence_length, delay)
+test_mae <- calculate_common_sense_mae(raw_data, test_targets, std, mean, sampling_rate, sequence_length, delay)
+
+cat("Validation MAE:", validation_mae, "\n")
+cat("Test MAE:", test_mae, "\n")
+
+
+```
+```{r}
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- inputs %>% 
+  layer_flatten() %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 1)
+
+model <- keras_model(inputs = inputs, outputs = x)
+
+callbacks <- list(
+  callback_model_checkpoint(filepath = "jena_dense.keras", save_best_only = TRUE)
+)
+
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("mae")
+)
+
+history <- model %>% fit(
+  x = train_dataset,
+  epochs = 10,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+
+# Load the model
+model <- load_model_hdf5("jena_dense.keras")
+
+# Evaluate the model on the test dataset
+test_metrics <- evaluate(model, test_dataset)
+
+# Convert test_metrics into a list
+test_metrics_list <- as.list(test_metrics)
+
+# Extract the mean absolute error (MAE) from the list
+test_mae <- test_metrics_list$mae
+
+cat("Test MAE:", test_mae, "\n")
+
+```
+```{r}
+library(ggplot2)
+
+# Extracting MAE and validation MAE from the history
+loss <- history$metrics$mae
+val_loss <- history$metrics$val_mae
+epochs <- 1:length(loss)
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  epochs = rep(epochs, 2),
+  mae = c(loss, val_loss),
+  dataset = rep(c("Training", "Validation"), each = length(loss))
+)
+
+# Plot
+p <- ggplot(plot_data, aes(x = epochs, y = mae, color = dataset)) +
+  geom_line() +
+  labs(title = "Training and validation MAE",
+       x = "Epochs",
+       y = "MAE") +
+  theme_minimal() +
+  scale_color_manual(values = c("Training" = "blue", "Validation" = "red")) +
+  guides(color = guide_legend(title = "Dataset"))
+
+# Display the plot
+print(p)
+
+```
+```{r}
+
+# Define the model
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[[2]]))
+x <- inputs %>%
+  layer_conv_1d(filters = 8, kernel_size = 24, activation = "relu") %>%
+  layer_max_pooling_1d(pool_size = 2) %>%
+  layer_conv_1d(filters = 8, kernel_size = 12, activation = "relu") %>%
+  layer_max_pooling_1d(pool_size = 2) %>%
+  layer_conv_1d(filters = 8, kernel_size = 6, activation = "relu") %>%
+  layer_global_average_pooling_1d()
+outputs <- x %>%
+  layer_dense(units = 1)
+
+model <- keras_model(inputs = inputs, outputs = outputs)
+
+# Set the callbacks
+callbacks <- list(
+  callback_model_checkpoint("jena_conv.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = "mae"
+)
+
+# Fit the model
+history <- model %>% fit(
+  train_dataset,
+  epochs = 10,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+
+# Load the best model
+model <- load_model_hdf5("jena_conv.keras")
+
+# Evaluate the model
+evaluation <- model %>% evaluate(test_dataset)
+cat(sprintf("Test MAE: %.2f", evaluation[[2]]))
+
+```
+```{r}
+# A simple LSTM-based model
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[[2]]))
+x <- layer_lstm(units = 14, input_shape = c(sequence_length, dim(raw_data)[[2]]))(inputs) #used lower amount of units in this layer
+outputs <- layer_dense(units = 1)(x)
+model <- keras_model(inputs = inputs, outputs = outputs)
+
+# Set up the callbacks
+callbacks <- list(
+  callback_model_checkpoint("jena_lstm.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = 'rmsprop',
+  loss = 'mse',
+  metrics = 'mae'
+)
+
+# Fit the model
+history <- model %>% fit(
+  train_dataset,
+  epochs = 10,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+
+# Load the best model
+model <- load_model_hdf5("jena_lstm.keras")
+
+# Evaluate the model
+evaluation <- model %>% evaluate(test_dataset)
+cat(sprintf("Test MAE: %.2f\n", evaluation[[2]]))
+
+```
+```{r}
+
+# Parameters
+timesteps <- 100L
+input_features <- 32L
+output_features <- 64L
+
+# Generate random inputs and initial state
+inputs <- tf$random$uniform(shape = shape(c(timesteps, input_features)), dtype = "float32")
+state_t <- tf$zeros(shape = shape(c(output_features, 1)), dtype = "float32")
+
+# Randomly initialize weights and bias
+W <- tf$random$uniform(shape = shape(c(output_features, input_features)), dtype = "float32")
+U <- tf$random$uniform(shape = shape(c(output_features, output_features)), dtype = "float32")
+b <- tf$random$uniform(shape = shape(c(output_features, 1)), dtype = "float32")
+
+# Container for the outputs
+successive_outputs <- list()
+
+# Perform the RNN operations
+for (input_t in 1:timesteps) {
+  # Calculate output_t
+  Wx <- tf$matmul(W, tf$transpose(inputs[input_t,,drop=FALSE]))
+  Ux <- tf$matmul(U, state_t)
+  Wx_plus_Ux <- tf$add(Wx, Ux)
+  Wx_plus_Ux_plus_b <- tf$add(Wx_plus_Ux, b)
+  output_t <- tf$tanh(Wx_plus_Ux_plus_b)
+  
+
+  successive_outputs[[input_t]] <- output_t
+  
+ 
+  state_t <- output_t
+}
+
+```
+
+```{r}
+#A recurrent layer in Keras
+#An RNN layer that can process sequences of any length
+num_features <- 14
+timesteps <- 10  
+
+inputs <- layer_input(shape = c(timesteps, num_features))
+reshaped_inputs <- layer_reshape(target_shape = c(timesteps, num_features))(inputs)
+outputs <- layer_simple_rnn(units = 16)(reshaped_inputs)
+```
+```{r}
+# An RNN layer that returns only its last output step
+num_features <- 14
+steps <- 120
+
+
+inputs <- layer_input(shape = c(steps, num_features))
+outputs <- layer_simple_rnn(units = 16, return_sequences = FALSE)(inputs)
+
+print(k_eval(k_shape(outputs)$shape))
+
+```
+```{r}
+# An RNN layer that returns its full output sequence
+inputs <- layer_input(shape = c(steps, num_features))
+outputs <- layer_simple_rnn(units = 16, return_sequences = TRUE)(inputs)
+print(k_shape(outputs)$shape)
+```
+```{r}
+# Stacking RNN layers
+inputs <- layer_input(shape = c(steps, num_features))
+x <- layer_simple_rnn(units = 16, return_sequences = TRUE)(inputs)
+x <- layer_simple_rnn(units = 16, return_sequences = TRUE)(x)
+outputs <- layer_simple_rnn(units = 16)(x)
+
+```
+```{r}
+#Using recurrent dropout to fight overfitting
+#Training and evaluating a dropout-regularized LSTM
+
+# Define model architecture
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- layer_lstm(units = 32, recurrent_dropout = 0.25)(inputs)
+x <- layer_dropout(rate = 0.5)(x)
+outputs <- layer_dense(units = 1)(x)
+model <- keras_model(inputs, outputs)
+
+# Define callbacks
+callbacks <- list(
+  callback_model_checkpoint(filepath = "jena_lstm_dropout.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("mae")
+)
+
+# Train the model
+history <- model %>% fit(
+  x = train_dataset,
+  epochs = 50,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+
+inputs <- layer_input(shape = c(sequence_length, num_features))
+x <- layer_lstm(units = 32, recurrent_dropout = 0.2, unroll = TRUE)(inputs)
+
+```
+1. Adjusting the number of units in each recurrent layer in the stacked setup
+```{r}
+#Base model
+# Training and evaluating a dropout-regularized, stacked GRU model
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- layer_gru(units = 32, recurrent_dropout = 0.5, return_sequences = TRUE)(inputs) #
+x <- layer_gru(units = 32, recurrent_dropout = 0.5)(x)
+x <- layer_dropout(rate = 0.5)(x)
+outputs <- layer_dense(units = 1)(x)
+model <- keras_model(inputs, outputs)
+
+
+# Define callbacks
+callbacks <- list(
+  callback_model_checkpoint(filepath = "jena_stacked_gru_dropout.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("mae")
+)
+
+# Train the model
+history <- model %>% fit(
+  x = train_dataset,
+  epochs = 20,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+```
+```{r}
+# Accessing the history to print validation MAE
+val_mae_history <- history$metrics$val_mae
+epoch <- which.min(val_mae_history) # Epoch with the lowest validation MAE
+min_val_mae <- min(val_mae_history) # Minimum validation MAE
+
+cat("Lowest Validation MAE: ", min_val_mae, " at Epoch: ", epoch, "\n")
+
+# Load the trained model
+model <- load_model_hdf5("jena_stacked_gru_dropout.keras")
+
+# Evaluate the model on the test dataset
+test_metrics <- evaluate(model, test_dataset)
+test_metrics_list <- as.list(test_metrics)
+
+# Extract test MAE from the list
+test_mae <- test_metrics_list$mae
+
+cat("Test MAE: ", test_mae, "\n")
+# Extracting validation MAE from the history object
+val_mae <- history$metrics$val_mae
+
+# Printing validation MAE for each epoch
+cat("Validation MAE by Epoch:\n")
+for (i in seq_along(val_mae)) {
+  cat(sprintf("Epoch %d: %.4f\n", i, val_mae[[i]]))
+}
+
+# Finding and printing the lowest validation MAE and its epoch
+min_val_mae <- min(val_mae)
+min_val_epoch <- which.min(val_mae)
+cat(sprintf("\nLowest Validation MAE: %.4f at Epoch: %d\n", min_val_mae, min_val_epoch))
+
+```
+```{r}
+#Adjusted stacked GRU model utilizing different amount of units
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- layer_gru(units = 64, recurrent_dropout = 0.5, return_sequences = TRUE)(inputs)  # Increased units
+x <- layer_gru(units = 32, recurrent_dropout = 0.5)(x) 
+x <- layer_dropout(rate = 0.5)(x)
+outputs <- layer_dense(units = 1)(x)
+
+outputs <- layer_dense(units = 1)(x)
+model <- keras_model(inputs, outputs)
+
+
+# Define callbacks
+callbacks <- list(
+  callback_model_checkpoint(filepath = "jena_stacked_gru_dropout.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("mae")
+)
+
+# Train the model
+history <- model %>% fit(
+  x = train_dataset,
+  epochs = 20,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+```
+```{r}
+
+# Load the trained model
+model <- load_model_hdf5("jena_stacked_gru_dropout.keras")
+
+# Evaluate the model on the test dataset
+test_metrics <- evaluate(model, test_dataset)
+test_metrics_list <- as.list(test_metrics)
+
+# Extract test MAE from the list
+test_mae <- test_metrics_list$mae
+# Extracting validation MAE from the history object
+val_mae <- history$metrics$val_mae
+
+# Printing validation MAE for each epoch
+cat("Validation MAE by Epoch:\n")
+for (i in seq_along(val_mae)) {
+  cat(sprintf("Epoch %d: %.4f\n", i, val_mae[[i]]))
+}
+
+# Finding and printing the lowest validation MAE and its epoch
+min_val_mae <- min(val_mae)
+min_val_epoch <- which.min(val_mae)
+cat(sprintf("\nLowest Validation MAE: %.4f at Epoch: %d\n", min_val_mae, min_val_epoch))
+```
+2. Using layer_lstm() instead of layer_gru()
+```{r}
+#Adjusted stacked GRU model utilizing different amount of units
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- layer_lstm(units = 64, recurrent_dropout = 0.5, return_sequences = TRUE)(inputs)  # Increased units
+x <- layer_gru(units = 32, recurrent_dropout = 0.5)(x) 
+x <- layer_dropout(rate = 0.5)(x)
+outputs <- layer_dense(units = 1)(x)
+
+outputs <- layer_dense(units = 1)(x)
+model <- keras_model(inputs, outputs)
+
+
+# Define callbacks
+callbacks <- list(
+  callback_model_checkpoint(filepath = "jena_stacked_gru_dropout.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("mae")
+)
+
+# Train the model
+history <- model %>% fit(
+  x = train_dataset,
+  epochs = 20,
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+```
+```{r}
+# Load the trained model
+model <- load_model_hdf5("jena_stacked_gru_dropout.keras")
+
+# Evaluate the model on the test dataset
+test_metrics <- evaluate(model, test_dataset)
+test_metrics_list <- as.list(test_metrics)
+
+# Extract test MAE from the list
+test_mae <- test_metrics_list$mae
+
+# Extracting validation MAE from the history object
+val_mae <- history$metrics$val_mae
+
+# Printing validation MAE for each epoch
+cat("Validation MAE by Epoch:\n")
+for (i in seq_along(val_mae)) {
+  cat(sprintf("Epoch %d: %.4f\n", i, val_mae[[i]]))
+}
+
+# Finding and printing the lowest validation MAE and its epoch
+min_val_mae <- min(val_mae)
+min_val_epoch <- which.min(val_mae)
+cat(sprintf("\nLowest Validation MAE: %.4f at Epoch: %d\n", min_val_mae, min_val_epoch))
+```
+3. Using a combination of 1d_convnets and RNN
+```{r}
+# Building the model
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- inputs %>% 
+  layer_conv_1d(filters = 16, kernel_size = 5, activation = "relu", strides = 1) %>%
+  layer_max_pooling_1d(pool_size = 2) %>%
+  layer_lstm(units = 16, return_sequences = FALSE)  # Adding LSTM 
+outputs <- layer_dense(units = 1)(x)
+
+model <- keras_model(inputs = inputs, outputs = outputs)
+
+# Set up the callbacks
+callbacks <- list(
+  callback_model_checkpoint(filepath = "jena_conv_lstm.keras",
+                            save_best_only = TRUE)
+)
+
+# Compile the model
+model %>% compile(
+  optimizer = 'rmsprop',
+  loss = 'mse',
+  metrics = c('mae')
+)
+
+# Fit the model to the training data
+history <- model %>% fit(
+  train_dataset,
+  epochs = 20,  # Adjust based on validation performance and computational resources
+  validation_data = val_dataset,
+  callbacks = callbacks
+)
+
+# Load the best model
+model <- load_model_hdf5("jena_conv_lstm.keras")
+```
+```{r}
+# Evaluate the model on the test dataset
+test_metrics <- model %>% evaluate(test_dataset)
+
+# Convert test_metrics into a list and extract the mean absolute error (MAE)
+test_metrics_list <- as.list(test_metrics)
+test_mae <- test_metrics_list$mae
+
+cat("Test MAE:", test_mae, "\n")
+
+# Printing validation MAE for each epoch
+cat("Validation MAE by Epoch:\n")
+for (i in seq_along(val_mae)) {
+  cat(sprintf("Epoch %d: %.4f\n", i, val_mae[[i]]))
+}
+
+# Finding and printing the lowest validation MAE and its epoch
+min_val_mae <- min(val_mae)
+min_val_epoch <- which.min(val_mae)
+cat(sprintf("\nLowest Validation MAE: %.4f at Epoch: %d\n", min_val_mae, min_val_epoch))
+
+# Note: The model is already loaded from the best checkpoint to evaluate on the test set
+
+```
+```{r}
+# Bidirectional RNN model
+inputs <- layer_input(shape = c(sequence_length, dim(raw_data)[2]))
+x <- bidirectional(layer = layer_lstm(units = 16), merge_mode = "concat")(inputs)
+outputs <- layer_dense(units = 1)(x)
+model <- keras_model(inputs = inputs, outputs = outputs)
+
+# Compile the model
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("mae")
+)
+
+# Fit the model
+history <- model %>% fit(
+  x = train_dataset,
+  epochs = 10, # Number of epochs can be adjusted based on requirements
+  validation_data = val_dataset
+)
+
+
+```
+
+
+
+
+
+
+
+
+
