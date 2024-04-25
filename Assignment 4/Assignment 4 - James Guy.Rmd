@@ -1,0 +1,364 @@
+---
+title: "Assignment 4 - AML"
+author: "James Guy"
+date: "2024-04-21"
+output: html_document
+---
+2. Restrict training samples to 100 <br>
+3. Validate on 10,000 samples <br>
+4. Consider only the top 10,000 words <br>
+```{r}
+library(keras)
+library(tensorflow)
+
+#Consider only the top 10,000 rows
+# Load the IMDB dataset
+imdb <- dataset_imdb(num_words = 10000) #consider only the top 10,000 words
+```
+```{r}
+word_index <- dataset_imdb_word_index()
+max_index <- max(unlist(word_index))
+print(max_index)
+
+# After loading the data
+imdb <- dataset_imdb(num_words = 10000)
+train_data <- imdb$train$x
+
+# Check the maximum index in the training data
+max_word_index <- max(unlist(train_data))
+print(max_word_index)
+
+```
+
+```{r}
+# Prepare the data
+c(c(train_data, train_labels), c(test_data, test_labels)) %<-% imdb
+train_data <- pad_sequences(train_data, maxlen = 150, padding = "pre")
+test_data <- pad_sequences(test_data, maxlen = 150, padding = "pre")
+
+# Create training and validation datasets
+val_indices <- 101:10101  #Validating on 10,000 samples
+train_indices <- 1:100  #Restrict training samples 100
+
+val_data <- train_data[val_indices,]
+val_labels <- train_labels[val_indices]
+train_data <- train_data[train_indices,]
+train_labels <- train_labels[train_indices]
+```
+5. Using an embedding layer
+```{r}
+# Define the model with an Embedding layer
+model_embedding <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 10000, output_dim = 16, input_length = 150) %>%
+  layer_flatten() %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+# Compile the model
+model_embedding %>% compile(
+  optimizer = 'rmsprop',
+  loss = 'binary_crossentropy',
+  metrics = c('accuracy')
+)
+```
+5. Using a pretrained word embedding
+```{r}
+train_indices <- 1:200  # Use the first 200 samples for training
+val_indices <- 201:9999
+
+# Set URL for the GloVe embeddings
+url <- "http://nlp.stanford.edu/data/glove.6B.zip"
+
+# Define the path where the file will be saved temporarily
+destination <- "C:/Masters Program/Advanced Machine Learning/Assignment 4/glove.6B.zip"
+
+options(timeout = 300) 
+download.file(url, destfile = destination, method = "auto")
+
+# Download the file from the internet
+download.file(url, destfile = destination)
+
+# Unzip the downloaded file
+unzip(destination, exdir = "glove.6B")
+
+# Define a function to load GloVe vectors
+load_glove_embeddings <- function(file_path, embedding_dim) {
+  lines <- readLines(file_path)
+  words <- sapply(lines, function(x) strsplit(x, split = " ")[[1]][1])
+  vectors <- sapply(lines, function(x) as.numeric(strsplit(x, split = " ")[[1]][-1]))
+  names(vectors) <- words
+  return(list(words = words, vectors = vectors))
+}
+
+# Load the embeddings from the specific file
+glove_embeddings <- load_glove_embeddings("glove.6B/glove.6B.100d.txt", 100)
+```
+```{r}
+# Create embedding matrix
+max_words <- 10000
+embedding_dim <- 100
+
+# Initialize the embedding matrix with zeros
+embedding_matrix <- matrix(0, nrow = max_words, ncol = embedding_dim)
+
+# Get the word index created by the `dataset_imdb` function
+word_index <- dataset_imdb_word_index()
+
+# Fill the embedding matrix with GloVe vectors where available
+for (word in names(word_index)) {
+  index <- word_index[[word]] + 1  
+  if (index <= max_words) {
+    # Check if the word is in the GloVe vocabulary
+    if (word %in% names(glove_embeddings$vectors)) {
+      # Retrieve the embedding vector
+      embedding_vector <- glove_embeddings$vectors[[word]]
+      # Check if the vector length is correct
+      if (length(embedding_vector) == embedding_dim) {
+        # Assign the vector to the matrix
+        embedding_matrix[index, ] <- embedding_vector
+      } else {
+        # Assign zeros if there is a length mismatch
+        embedding_matrix[index, ] <- rep(0, embedding_dim)
+      }
+    } else {
+      # Assign zeros if the word is not found in GloVe
+      embedding_matrix[index, ] <- rep(0, embedding_dim)
+    }
+  }
+}
+
+```
+```{r}
+# Define the model using pretrained embeddings with an LSTM layer
+model_pretrained <- keras_model_sequential() %>%
+  layer_embedding(input_dim = max_words, output_dim = embedding_dim, weights = list(embedding_matrix), trainable = FALSE, input_length = 150, mask_zero = TRUE) %>%
+  bidirectional(layer_lstm(units = 32)) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 1, activation = 'sigmoid')
+
+# Compile the model
+model_pretrained %>% compile(
+  optimizer = 'rmsprop',
+  loss = 'binary_crossentropy',
+  metrics = c('accuracy')
+)
+
+```
+```{r}
+# Fit the embedding model
+history_embedding <- model_embedding %>% fit(
+  train_data, train_labels,
+  epochs = 10,
+  validation_data = list(val_data, val_labels)
+)
+
+library(ggplot2)
+
+# Extract accuracy and loss from the history object
+embedding_accuracy <- history_embedding$metrics$val_accuracy
+embedding_loss <- history_embedding$metrics$val_loss
+
+# Create a data frame for plotting
+embedding_results <- data.frame(
+  epoch = 1:length(embedding_accuracy),
+  accuracy = embedding_accuracy,
+  loss = embedding_loss
+)
+```
+```{r}
+# Plot validation accuracy over epochs
+ggplot(embedding_results, aes(x = epoch)) +
+  geom_line(aes(y = accuracy), color = "blue") +
+  ggtitle("Validation Accuracy Over Epochs") +
+  ylab("Accuracy") +
+  xlab("Epoch") +
+  theme_minimal()
+
+# Plot validation loss over epochs
+ggplot(embedding_results, aes(x = epoch)) +
+  geom_line(aes(y = loss), color = "red") +
+  ggtitle("Validation Loss Over Epochs") +
+  ylab("Loss") +
+  xlab("Epoch") +
+  theme_minimal()
+
+```
+
+```{r}
+# Fit the pretrained embedding model
+history_pretrained <- model_pretrained %>% fit(
+  train_data, train_labels,
+  epochs = 10,
+  validation_data = list(val_data, val_labels)
+)
+
+
+# Extract accuracy and loss for the pretrained embedding model from the fit history
+pretrained_accuracy <- history_pretrained$metrics$val_accuracy
+pretrained_loss <- history_pretrained$metrics$val_loss
+
+# Create a data frame for plotting the pretrained model results
+pretrained_results <- data.frame(
+  epoch = 1:length(pretrained_accuracy),
+  accuracy = pretrained_accuracy,
+  loss = pretrained_loss
+)
+
+# Plot validation accuracy over epochs for the pretrained model
+ggplot(pretrained_results, aes(x = epoch)) +
+  geom_line(aes(y = accuracy), color = "blue") +
+  ggtitle("Pretrained Model Validation Accuracy Over Epochs") +
+  ylab("Accuracy") +
+  xlab("Epoch") +
+  theme_minimal()
+
+# Plot validation loss over epochs for the pretrained model
+ggplot(pretrained_results, aes(x = epoch)) +
+  geom_line(aes(y = loss), color = "red") +
+  ggtitle("Pretrained Model Validation Loss Over Epochs") +
+  ylab("Loss") +
+  xlab("Epoch") +
+  theme_minimal()
+
+
+```
+5. We can see from the results from the graphs that the embedding layer performed better than the pretrained embedding layer. <br> <br>
+1. Cutting off reviews after 150 words.
+```{r}
+# Reload the IMDB dataset without initially slicing it to 100
+imdb <- dataset_imdb(num_words = 10000)
+c(c(train_data, train_labels), c(test_data, test_labels)) %<-% imdb
+train_data <- pad_sequences(train_data, maxlen = 150, padding = "pre") #Cutoff reviews after 150 words
+test_data <- pad_sequences(test_data, maxlen = 150, padding = "pre")  #Cutoff reviews after 150 words
+
+# Redefine the function without altering the global train_data
+run_model <- function(train_size) {
+  # Ensuring not to exceed the available number of samples
+  actual_train_size <- min(train_size, length(train_labels))
+  train_indices <- 1:actual_train_size
+  
+  # Select data subsets
+  train_data_subset <- train_data[train_indices,]
+  train_labels_subset <- train_labels[train_indices]
+  
+  # Fit models
+  history_embedding <- model_embedding %>% fit(
+    train_data_subset, train_labels_subset,
+    epochs = 10,
+    validation_data = list(val_data, val_labels)
+  )
+  
+  history_pretrained <- model_pretrained %>% fit(
+    train_data_subset, train_labels_subset,
+    epochs = 10,
+    validation_data = list(val_data, val_labels)
+  )
+  
+  return(list(embedding = history_embedding, pretrained = history_pretrained))
+}
+
+```
+
+```{r}
+# Function to run a model with given training data size
+run_model <- function(train_size) {
+  train_indices <- 1:train_size
+  
+  # Select data subsets
+  train_data_subset <- train_data[train_indices,]
+  train_labels_subset <- train_labels[train_indices]
+  
+  # Fit models
+  history_embedding <- model_embedding %>% fit(
+    train_data_subset, train_labels_subset,
+    epochs = 10,
+    validation_data = list(val_data, val_labels)
+  )
+  
+  history_pretrained <- model_pretrained %>% fit(
+    train_data_subset, train_labels_subset,
+    epochs = 10,
+    validation_data = list(val_data, val_labels)
+  )
+  
+  return(list(embedding = history_embedding, pretrained = history_pretrained))
+}
+
+# Example: Run with 200 training samples
+results_200 <- run_model(200)
+
+```
+```{r}
+run_models_with_different_sizes <- function(train_sizes) {
+  results <- data.frame()
+  
+  for (train_size in train_sizes) {
+    train_indices <- 1:train_size
+    
+    if (train_size > length(train_labels)) {
+      stop("Requested training size exceeds available labels.")
+    }
+    
+    # Prepare subsets of data
+    train_data_subset <- train_data[train_indices,]
+    train_labels_subset <- train_labels[train_indices]
+    
+    # Fit the model with embedding layer trained from scratch
+    history_embedding <- model_embedding %>% fit(
+      train_data_subset, train_labels_subset,
+      epochs = 10,
+      validation_data = list(val_data, val_labels),
+      verbose = 0  # Set verbose = 0 for less output during training
+    )
+    
+    # Fit the model with pretrained embedding layer
+    history_pretrained <- model_pretrained %>% fit(
+      train_data_subset, train_labels_subset,
+      epochs = 10,
+      validation_data = list(val_data, val_labels),
+      verbose = 0  # Set verbose = 0 for less output during training
+    )
+    
+    # Record the results
+    results <- rbind(results, data.frame(
+      train_size = train_size,
+      model = "Embedding",
+      final_val_accuracy = tail(history_embedding$metrics$val_accuracy, 1),
+      final_val_loss = tail(history_embedding$metrics$val_loss, 1)
+    ))
+    
+    results <- rbind(results, data.frame(
+      train_size = train_size,
+      model = "Pretrained",
+      final_val_accuracy = tail(history_pretrained$metrics$val_accuracy, 1),
+      final_val_loss = tail(history_pretrained$metrics$val_loss, 1)
+    ))
+  }
+  
+  return(results)
+}
+
+```
+```{r}
+sample_sizes <- c(200, 500, 1000, 2000)  # Define sample sizes
+results <- run_models_with_different_sizes(sample_sizes)
+```
+```{r}
+# Plotting validation accuracy
+ggplot(results, aes(x = train_size, y = final_val_accuracy, color = model, group = model)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Validation Accuracy by Training Size", x = "Training Size", y = "Validation Accuracy") +
+  theme_minimal()
+
+# Plotting validation loss
+ggplot(results, aes(x = train_size, y = final_val_loss, color = model, group = model)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Validation Loss by Training Size", x = "Training Size", y = "Validation Loss") +
+  theme_minimal()
+
+```
+<br> <br>
+5. As we can see from above the embedding model gives better performance at roughly a training sample size of 255.
+
+
